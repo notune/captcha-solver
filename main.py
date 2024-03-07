@@ -1,22 +1,17 @@
-import re
 import time
-import pytesseract
-from PIL import ImageGrab, Image
+from PIL import ImageGrab
 from check_difference import is_significantly_different
 from determine_grid_size import find_image_grid_size
 
-from extract_captcha import extract_and_save_captcha
+from extract_captcha import extract_captcha
 from extract_captcha_grid import extract_captcha_grid
 from extract_captcha_instr import extract_captcha_instr
 from extract_individual_images import extract_individual_images
 from findAndClick import findAndClick
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from llava.mm_utils import get_model_name_from_path
+from custom_inference import eval_model, load_model
 
-
-model_id = "vikhyatk/moondream2"
-revision = "2024-03-05"
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 def capture_screenshot(file_name="big_image.png"):
     # Capture the entire screen
@@ -24,42 +19,33 @@ def capture_screenshot(file_name="big_image.png"):
     # Save the screenshot
     screenshot.save(file_name)
 
-def ask_moondream(prompt, image_file):
+def ask_llava(prompt, image_file):
 
-    image = Image.open(image_file)
-    enc_image = model.encode_image(image)
-    return model.answer_question(enc_image, prompt, tokenizer)
+    args = type('Args', (), {
+        "query": prompt,
+        "conv_mode": None,
+        "image_file": image_file,
+        "sep": ",",
+        "temperature": 0,
+        "top_p": 0.7,
+        "num_beams": 1,
+        "max_new_tokens": 512
+    })()
+    answer = str(eval_model(args, tokenizer, model, image_processor, model_name))
+    return answer
 
-def extract_word_double_newlines(text):
-    # Define a regular expression pattern to match a word that is surrounded by double newlines
-    pattern = r'\n\n(\w+)\n\n'
-    # Search for the pattern in the text
-    match = re.search(pattern, text)
-    # If a match is found, return the matched word, otherwise return None
-    return match.group(1) if match else None
 
-#load model
-print("loading model...")
-model = AutoModelForCausalLM.from_pretrained(
-    model_id, trust_remote_code=True, revision=revision
-)
-tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
-
-capture_screenshot("image_before_click.png")
 
 #check the box "I'm not a robot"
 findAndClick(reference_image_path='box.png', max_offset=5)
 print('clicking checkbox...')
 
-time.sleep(2)
+time.sleep(1)
 
-capture_screenshot("image_after_click.png")
+capture_screenshot()
 
 print('extracting captcha...')
-is_captcha_visible = extract_and_save_captcha(image_before_click_path="image_before_click.png", image_after_click_path="image_after_click.png")
-if not is_captcha_visible:
-    print("No captcha found")
-    exit()
+is_captcha_visible = extract_captcha(big_image_path="big_image.png")
 extract_captcha_instr()
 extract_captcha_grid()
 grid_size_x, grid_size_y = find_image_grid_size(image_path="grid.png")
@@ -67,14 +53,20 @@ assert grid_size_x == grid_size_y
 print(f"The grid size is {grid_size_x}.")
 image_paths = extract_individual_images(grid_size_x, "grid.png")
 
-regex = re.compile('[^a-zA-Z]')
+#load model
+
+model_path = "liuhaotian/llava-v1.6-vicuna-7b"
+args = type('Args', (), {
+        "model_path": model_path,
+        "model_base": None,
+        "model_name": get_model_name_from_path(model_path),
+})
+tokenizer, model, image_processor, model_name = load_model(args)
+
 
 while is_captcha_visible:
     print('repeating loop...')
-    #to_find = ask_moondream('Given the text in the image, what object(s) should I select? Give me only the name of the object(s), nothing else.', 'instr.png').lower()
-    to_find = pytesseract.image_to_string(Image.open('instr.png')).lower()
-    # extract the word
-    to_find = extract_word_double_newlines(to_find)
+    to_find = ask_llava('Given the text in the image, what object(s) should I select? Give me only the name of the object(s), nothing else.', 'instr.png').lower()
 
     print("to_find: ", to_find)
 
@@ -88,7 +80,7 @@ while is_captcha_visible:
         prompt = f'Are there any parts of {to_find} visible in this image? answer strictly with "YES" or "NO", nothing else'
 
     for image_path in image_paths:
-        answer = ask_moondream(prompt, image_path).lower()
+        answer = ask_llava(prompt, image_path).lower()
         print(f'answer was: {answer}')
         assert answer == 'yes' or answer == 'no', 'llava-model did not properly respond'
         if answer == 'yes':
@@ -100,13 +92,13 @@ while is_captcha_visible:
     if grid_size_x == 3:
         time.sleep(2)
         capture_screenshot('big_image_2.png')
-        is_captcha_visible = extract_and_save_captcha(image_before_click_path="image_before_click.png", image_after_click_path="big_image_2.png")
+        is_captcha_visible = extract_captcha(big_image_path='big_image_2.png', part1_bottom_path='part1_bottom_2.png')
         extract_captcha_grid(final_path='grid2.png')
         new_images_added = is_significantly_different('grid.png', 'grid2.png', 5)
 
         if new_images_added: #check if this difference comes from the checkmarks
             print('img difference detected')
-            checkmarks_visible = ask_moondream('Do you see any checkmarks in this image? answer only with "YES" or "NO", nothing else', image_file='grid2.png').lower()
+            checkmarks_visible = ask_llava('Do you see any checkmarks in this image? answer only with "YES" or "NO", nothing else', image_file='grid2.png').lower()
             assert checkmarks_visible == 'yes' or checkmarks_visible == 'no', 'llava-model did not properly respond'
             if checkmarks_visible == 'yes':
                 print('img difference was only checkmarks')
@@ -120,7 +112,7 @@ while is_captcha_visible:
         print('WAITING 2')
     time.sleep(2)
     capture_screenshot()
-    is_captcha_visible = extract_and_save_captcha(image_before_click_path="image_before_click.png", image_after_click_path="big_image.png")
+    is_captcha_visible = extract_captcha(big_image_path='big_image.png', part1_bottom_path='part1_bottom_2.png') #temporary solution to find bottom part of captcha with button border in ubuntu TODO improve
     if not is_captcha_visible:
         break
     extract_captcha_instr()
@@ -131,3 +123,8 @@ while is_captcha_visible:
     image_paths = extract_individual_images(grid_size_x, "grid.png")
 
 print('DONE')
+    
+
+
+
+
