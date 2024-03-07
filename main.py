@@ -2,6 +2,7 @@ import re
 import time
 import pytesseract
 from PIL import ImageGrab, Image
+import torch
 from check_difference import is_significantly_different
 from determine_grid_size import find_image_grid_size
 
@@ -13,9 +14,12 @@ from findAndClick import findAndClick
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from get_largest_text import get_largest_text
+
+#torch.set_default_device("cuda")
 
 model_id = "vikhyatk/moondream2"
-revision = "2024-03-05"
+revision = "2024-03-06"
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 def capture_screenshot(file_name="big_image.png"):
@@ -29,14 +33,6 @@ def ask_moondream(prompt, image_file):
     image = Image.open(image_file)
     enc_image = model.encode_image(image)
     return model.answer_question(enc_image, prompt, tokenizer)
-
-def extract_word_double_newlines(text):
-    # Define a regular expression pattern to match a word that is surrounded by double newlines
-    pattern = r'\n\n(\w+)\n\n'
-    # Search for the pattern in the text
-    match = re.search(pattern, text)
-    # If a match is found, return the matched word, otherwise return None
-    return match.group(1) if match else None
 
 #load model
 print("loading model...")
@@ -71,10 +67,8 @@ regex = re.compile('[^a-zA-Z]')
 
 while is_captcha_visible:
     print('repeating loop...')
-    #to_find = ask_moondream('Given the text in the image, what object(s) should I select? Give me only the name of the object(s), nothing else.', 'instr.png').lower()
-    to_find = pytesseract.image_to_string(Image.open('instr.png')).lower()
     # extract the word
-    to_find = extract_word_double_newlines(to_find)
+    to_find = get_largest_text('instr.png').lower()
 
     print("to_find: ", to_find)
 
@@ -90,7 +84,7 @@ while is_captcha_visible:
     for image_path in image_paths:
         answer = ask_moondream(prompt, image_path).lower()
         print(f'answer was: {answer}')
-        assert answer == 'yes' or answer == 'no', 'llava-model did not properly respond'
+        assert answer == 'yes' or answer == 'no', 'model did not properly respond'
         if answer == 'yes':
             print('clicking image')
             findAndClick(reference_image_path=image_path, max_offset=20)
@@ -107,7 +101,7 @@ while is_captcha_visible:
         if new_images_added: #check if this difference comes from the checkmarks
             print('img difference detected')
             checkmarks_visible = ask_moondream('Do you see any checkmarks in this image? answer only with "YES" or "NO", nothing else', image_file='grid2.png').lower()
-            assert checkmarks_visible == 'yes' or checkmarks_visible == 'no', 'llava-model did not properly respond'
+            assert checkmarks_visible == 'yes' or checkmarks_visible == 'no', 'model did not properly respond'
             if checkmarks_visible == 'yes':
                 print('img difference was only checkmarks')
                 new_images_added = False

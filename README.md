@@ -11,9 +11,10 @@ It takes screenshots, and clicks the images at the given location. It also detec
 - Only works for this specific recaptcha layout, if it changes, the reference images also have to be updated
 
 # Installation
-1. pip install protobuf PyAutoGUI opencv-python pillow transformers timm einops pytesseract 
-2. Install tesseract: https://tesseract-ocr.github.io/tessdoc/Installation.html
-3. Run the script `main.py` to solve a captcha, once its done it will close (the llava model should be automatically downloaded on first start)
+1. Install pytorch (optionally) with cuda according to https://pytorch.org/
+2. pip install protobuf PyAutoGUI opencv-python pillow transformers timm einops pytesseract 
+3. Install tesseract: https://tesseract-ocr.github.io/tessdoc/Installation.html
+4. Run the script `main.py` to solve a captcha, once its done it will close (the llava model should be automatically downloaded on first start)
 
 # Contributions
 Contributions welcome! If you have any issues or improvements feel free to change the code or let me know by submitting a new issue.
